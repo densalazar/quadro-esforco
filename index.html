@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Votação de esforço</title>
+<style>
+:root{--bg:#f3f5f7;--panel:#fff;--text:#16202b;--muted:#64707d;--line:#d9dee4;--accent:#1f5f8b;--accent-t:#fff;--ok:#19804f;--warn:#a86400}
+@media(prefers-color-scheme:dark){:root{--bg:#10161c;--panel:#18212a;--text:#e6ebf0;--muted:#919ca8;--line:#2a3542;--accent:#5eb0e5;--accent-t:#08131c;--ok:#4cc48a;--warn:#f0b34a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 "Segoe UI",system-ui,sans-serif}
+main{max-width:880px;margin:0 auto;padding:24px 16px 56px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+h1{font-size:1.35rem;margin:0}
+.muted{color:var(--muted);font-size:.9rem}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;margin-top:16px}
+input{font:inherit;padding:9px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);width:100%;max-width:260px}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--text);padding:9px 16px;border-radius:8px}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-t);font-weight:600}
+button:disabled{opacity:.4;cursor:not-allowed}
+.deck{display:flex;flex-wrap:wrap;gap:10px}
+.opt{width:62px;height:84px;font-size:1.4rem;font-weight:700}
+.opt.neutral{width:92px;font-size:.95rem;font-weight:600}
+.opt.sel{background:var(--accent);border-color:var(--accent);color:var(--accent-t);transform:translateY(-5px)}
+.players{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.pl{border:1px solid var(--line);border-radius:8px;padding:10px;text-align:center}
+.pl.me{border-color:var(--accent)}
+.pl .n{font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl .v{height:52px;display:flex;align-items:center;justify-content:center;font-size:1.9rem;font-weight:700}
+.pl .v.s{font-size:1rem;font-weight:600;color:var(--muted)}
+.st{font-size:.8rem;color:var(--muted)}
+.st.ok{color:var(--ok)}
+.cd{font-size:5.5rem;font-weight:800;text-align:center;color:var(--accent);line-height:1.1;margin-bottom:8px}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}
+.stats{display:flex;gap:28px;flex-wrap:wrap;margin-top:16px}
+.stats b{display:block;font-size:1.5rem}
+.note{margin-top:14px;padding:10px 14px;border-radius:8px;border:1px solid var(--ok);color:var(--ok)}
+.note.warn{border-color:var(--warn);color:var(--warn)}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div><h1>Votação de esforço</h1><div class="muted" id="sub"></div></div>
+  <div class="row" style="margin:0"><button id="copy">Copiar link da sala</button><button id="leave" hidden>Sair</button></div>
+</header>
+
+<section id="join" class="panel" hidden>
+  <p style="margin-top:0">Digite seu nome para entrar na sala.</p>
+  <div class="row" style="margin-top:0">
+    <input id="nm" maxlength="20" placeholder="Seu nome" autocomplete="off">
+    <button class="primary" id="go">Entrar</button>
+  </div>
+  <p class="muted" id="jinfo" style="margin-bottom:0"></p>
+</section>
+
+<section id="app" hidden>
+  <div class="panel">
+    <div class="deck" id="deck"></div>
+    <p class="muted" style="margin:12px 0 0">Neutro: para quem só acompanha a tela (por exemplo, produto). Não entra na média.</p>
+  </div>
+  <div class="panel" id="board"></div>
+</section>
+</main>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+// 1) Cole aqui a configuração do seu projeto Firebase (Configurações do projeto > Seus apps > Web)
+const firebaseConfig = {
+  apiKey: "AIzaSyCI6qRHi0VKF_ISj6oVqE-Md75ssSRImnw",
+  authDomain: "quadro-esforco.firebaseapp.com",
+  databaseURL: "https://quadro-esforco-default-rtdb.firebaseio.com",
+  projectId: "quadro-esforco",
+  storageBucket: "quadro-esforco.firebasestorage.app",
+  messagingSenderId: "132459485345",
+  appId: "1:132459485345:web:eda789dfb0b677a3bab8e0",
+  measurementId: "G-49JN0GFSR6"
+};
+
+const MAX = 10;
+const OPTIONS = ['1','2','3','5','8','13','21','neutro'];
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+if (firebaseConfig.databaseURL.includes('SEU-PROJETO')) {
+  $('main').insertAdjacentHTML('beforeend','<div class="panel note warn">Configure o Firebase: edite <b>firebaseConfig</b> no início do script deste arquivo.</div>');
+  throw new Error('Firebase não configurado');
+}
+
+let room = (location.hash || '').slice(1);
+if (!/^[a-z0-9-]{4,30}$/i.test(room)) { room = Math.random().toString(36).slice(2, 8); location.hash = room; }
+$('#sub').textContent = 'Sala ' + room;
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const base = db.ref('salas/' + room);
+const playersRef = base.child('players');
+const stateRef = base.child('state');
+const KEY = 've-' + room;
+
+let me = null, players = {}, state = { phase: 'voting', round: 1 };
+let saved = null, offset = 0, tick = null, lastFinish = 0, connected = false;
+try { saved = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) {}
+
+const now = () => Date.now() + offset;
+db.ref('.info/serverTimeOffset').on('value', s => { offset = s.val() || 0; });
+
+function join(name, id) {
+  id = id || Math.random().toString(36).slice(2, 10);
+  playersRef.transaction(cur => {
+    cur = cur || {};
+    if (!cur[id] && Object.keys(cur).length >= MAX) return;
+    const old = cur[id] || {};
+    cur[id] = { name: name, vote: old.vote == null ? null : old.vote, ready: !!old.ready };
+    return cur;
+  }, (err, ok) => {
+    if (err || !ok) { render(); return; }
+    me = { id: id, name: name };
+    try { localStorage.setItem(KEY, JSON.stringify(me)); } catch (e) {}
+    playersRef.child(id).onDisconnect().remove();
+    render();
+  }, false);
+}
+
+// Reentra automaticamente ao recarregar ou quando a conexão volta
+db.ref('.info/connected').on('value', s => {
+  connected = !!s.val();
+  const who = me || saved;
+  if (connected && who) join(who.name, who.id);
+});
+
+playersRef.on('value', s => { players = s.val() || {}; render(); checkAllReady(); });
+stateRef.on('value', s => { state = s.val() || { phase: 'voting', round: 1 }; render(); checkAllReady(); });
+
+function checkAllReady() {
+  if (state.phase !== 'voting') return;
+  const ids = Object.keys(players);
+  if (!ids.length || !ids.every(i => players[i].ready && players[i].vote != null)) return;
+  stateRef.transaction(s => {
+    s = s || { phase: 'voting', round: 1 };
+    if (s.phase !== 'voting') return;
+    return { phase: 'countdown', round: s.round || 1, startedAt: firebase.database.ServerValue.TIMESTAMP };
+  });
+}
+
+function finishCountdown() {
+  if (now() - lastFinish < 1500) return;
+  lastFinish = now();
+  stateRef.transaction(s => {
+    if (!s || s.phase !== 'countdown') return;
+    return { phase: 'revealed', round: s.round || 1 };
+  });
+}
+
+function vote(v) {
+  if (!me || state.phase !== 'voting') return;
+  playersRef.child(me.id).update({ vote: v, ready: false });
+}
+function toggleReady() {
+  const p = me && players[me.id];
+  if (!p || p.vote == null || state.phase !== 'voting') return;
+  playersRef.child(me.id).update({ ready: !p.ready });
+}
+function newRound() {
+  const u = {};
+  Object.keys(players).forEach(i => { u['players/' + i + '/vote'] = null; u['players/' + i + '/ready'] = false; });
+  u['state'] = { phase: 'voting', round: (state.round || 1) + 1 };
+  base.update(u);
+}
+function leave() {
+  if (me) playersRef.child(me.id).remove();
+  me = null; saved = null;
+  try { localStorage.removeItem(KEY); } catch (e) {}
+  render();
+}
+
+function stats() {
+  const nums = Object.values(players).map(p => p.vote).filter(v => v && v !== 'neutro').map(Number);
+  if (!nums.length) return null;
+  const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
+  const count = {};
+  nums.forEach(n => count[n] = (count[n] || 0) + 1);
+  const top = Math.max(...Object.values(count));
+  const mode = Object.keys(count).filter(k => count[k] === top).join(' / ');
+  return { avg, mode, min: Math.min(...nums), max: Math.max(...nums), same: new Set(nums).size === 1 && nums.length > 1 };
+}
+
+function render() {
+  const ids = Object.keys(players);
+  const n = ids.length;
+  $('#jinfo').textContent = n >= MAX ? 'Sala cheia (máximo de ' + MAX + ' pessoas).' : n + ' de ' + MAX + ' vagas ocupadas.';
+  $('#go').disabled = n >= MAX;
+  $('#join').hidden = !!me;
+  $('#app').hidden = !me;
+  $('#leave').hidden = !me;
+  if (!me) return;
+
+  let phase = state.phase, left = 0;
+  if (phase === 'countdown') {
+    left = Math.ceil(((state.startedAt || now()) + 3000 - now()) / 1000);
+    if (left <= 0) { phase = 'revealed'; finishCountdown(); }
+  }
+  if (phase === 'countdown' && !tick) tick = setInterval(render, 200);
+  if (phase !== 'countdown' && tick) { clearInterval(tick); tick = null; }
+
+  const mine = players[me.id] || {};
+  $('#deck').innerHTML = OPTIONS.map(o =>
+    '<button class="opt' + (o === 'neutro' ? ' neutral' : '') + (mine.vote === o ? ' sel' : '') + '" data-v="' + o + '"' +
+    (phase !== 'voting' ? ' disabled' : '') + '>' + (o === 'neutro' ? 'Neutro' : o) + '</button>').join('');
+
+  const sorted = ids.sort((a, b) => players[a].name.localeCompare(players[b].name, 'pt-BR'));
+  const revealed = phase === 'revealed';
+  const cards = sorted.map(i => {
+    const p = players[i];
+    let val, small = false;
+    if (revealed) { val = p.vote == null ? '—' : p.vote === 'neutro' ? 'Neutro' : p.vote; small = val === 'Neutro' || val === '—'; }
+    else if (i === me.id && p.vote != null) { val = p.vote === 'neutro' ? 'Neutro' : p.vote; small = p.vote === 'neutro'; }
+    else { val = p.vote != null ? '●' : '…'; small = true; }
+    const st = revealed ? '' : p.ready ? '<span class="st ok">pronto</span>' : '<span class="st">' + (p.vote != null ? 'escolheu' : 'pensando') + '</span>';
+    return '<div class="pl' + (i === me.id ? ' me' : '') + '"><div class="n">' + esc(p.name) + (i === me.id ? ' (você)' : '') +
+      '</div><div class="v' + (small ? ' s' : '') + '">' + esc(val) + '</div>' + st + '</div>';
+  }).join('');
+
+  let html = phase === 'countdown' ? '<div class="cd" aria-live="assertive">' + Math.max(left, 1) + '</div>' : '';
+  html += '<div class="players">' + cards + '</div>';
+
+  if (phase === 'voting') {
+    const ready = ids.filter(i => players[i].ready).length;
+    html += '<div class="row"><button class="primary" id="rdy"' + (mine.vote == null ? ' disabled' : '') + '>' +
+      (mine.ready ? 'Cancelar' : 'Estou pronto') + '</button><span class="muted">' + ready + ' de ' + n + ' prontos</span></div>';
+  } else if (revealed) {
+    const s = stats();
+    if (s) {
+      html += '<div class="stats"><div><b>' + s.avg.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '</b><span class="muted">média</span></div>' +
+        '<div><b>' + s.mode + '</b><span class="muted">mais votado</span></div>' +
+        '<div><b>' + s.min + ' a ' + s.max + '</b><span class="muted">menor e maior</span></div></div>';
+      html += s.same ? '<div class="note">Consenso em ' + s.min + '.</div>'
+        : '<div class="note warn">Votos divergentes. Vale ouvir quem votou o menor e o maior valor.</div>';
+    }
+    html += '<div class="row"><button class="primary" id="nr">Nova rodada</button></div>';
+  }
+  $('#board').innerHTML = html;
+}
+
+document.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.v) vote(b.dataset.v);
+  else if (b.id === 'rdy') toggleReady();
+  else if (b.id === 'nr') newRound();
+  else if (b.id === 'leave') leave();
+  else if (b.id === 'go') { const v = $('#nm').value.trim(); if (v) join(v, saved && saved.id); }
+  else if (b.id === 'copy') {
+    const url = location.href;
+    (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(() => { b.textContent = 'Link copiado'; setTimeout(() => b.textContent = 'Copiar link da sala', 1500); }).catch(() => prompt('Copie o link:', url));
+  }
+});
+$('#nm').addEventListener('keydown', e => { if (e.key === 'Enter') $('#go').click(); });
+render();
+</script>
+</body>
+</html>
